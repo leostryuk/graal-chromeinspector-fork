@@ -38,6 +38,8 @@ import org.graalvm.polyglot.io.MessageEndpoint;
 import com.oracle.truffle.api.interop.ArityException;
 import com.oracle.truffle.api.interop.UnsupportedMessageException;
 import com.oracle.truffle.api.interop.UnsupportedTypeException;
+import com.oracle.truffle.tools.chromeinspector.BreakpointsListener;
+import com.oracle.truffle.tools.chromeinspector.BreakpointsListenerBasicImpl;
 import com.oracle.truffle.tools.chromeinspector.InspectorDebugger;
 import com.oracle.truffle.tools.chromeinspector.InspectorExecutionContext;
 import com.oracle.truffle.tools.chromeinspector.InspectorProfiler;
@@ -81,9 +83,14 @@ public final class InspectServerSession implements MessageEndpoint {
     }
 
     public static InspectServerSession create(InspectorExecutionContext context, boolean debugBreak, ConnectionWatcher connectionWatcher, Runnable sessionDisposal) {
+        return create(context, debugBreak, connectionWatcher, sessionDisposal, new BreakpointsListenerBasicImpl());
+    }
+
+    public static InspectServerSession create(InspectorExecutionContext context, boolean debugBreak, ConnectionWatcher connectionWatcher, Runnable sessionDisposal,
+                    BreakpointsListener breakpointsListener) {
         ReadWriteLock domainLock = new ReentrantReadWriteLock();
         RuntimeDomain runtime = new InspectorRuntime(context);
-        DebuggerDomain debugger = new InspectorDebugger(context, debugBreak, domainLock, sessionDisposal);
+        DebuggerDomain debugger = new InspectorDebugger(context, debugBreak, domainLock, sessionDisposal, breakpointsListener);
         ProfilerDomain profiler = new InspectorProfiler(context, connectionWatcher);
         return new InspectServerSession(runtime, debugger, profiler, context, domainLock);
     }

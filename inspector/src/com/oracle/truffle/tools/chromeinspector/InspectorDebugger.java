@@ -132,6 +132,13 @@ public final class InspectorDebugger extends DebuggerDomain {
     private final ReadWriteLock domainLock;
     private final long uniqueId = lastUniqueId.incrementAndGet();
     private final Runnable sessionDisposal;
+    private BreakpointsListener breakpointsListener = null;
+
+    public InspectorDebugger(InspectorExecutionContext context, boolean suspend, ReadWriteLock domainLock,
+                             Runnable sessionDisposal, BreakpointsListener breakpointsListener) {
+        this(context, suspend, domainLock, sessionDisposal);
+        this.breakpointsListener = breakpointsListener;
+    }
 
     public InspectorDebugger(InspectorExecutionContext context, boolean suspend, ReadWriteLock domainLock, Runnable sessionDisposal) {
         this.context = context;
@@ -367,7 +374,10 @@ public final class InspectorDebugger extends DebuggerDomain {
     public void pause() {
         DebuggerSuspendedInfo susp = suspendedInfo;
         if (susp == null) {
-            debuggerSession.suspendNextExecution();
+            if (breakpointsListener.canSuspend(debuggerSession)) {
+                breakpointsListener.onBreakpointSuspend(debuggerSession);
+                debuggerSession.suspendNextExecution();
+            }
         }
     }
 
@@ -409,11 +419,12 @@ public final class InspectorDebugger extends DebuggerDomain {
         }
     }
 
-    private void doResume() {
+    public void doResume() {
         suspendLock.lock();
         try {
             if (!running) {
                 running = true;
+                breakpointsListener.onBreakpointResume(debuggerSession);
                 suspendLockCondition.signalAll();
             }
         } finally {
@@ -652,11 +663,14 @@ public final class InspectorDebugger extends DebuggerDomain {
         if (line <= 0) {
             throw new CommandProcessException("Must specify line number.");
         }
+        Params createdBreakPoint;
         if (!url.isEmpty()) {
-            return breakpointsHandler.createURLBreakpoint(url, line, column, condition);
+            createdBreakPoint = breakpointsHandler.createURLBreakpoint(url, line, column, condition);
         } else {
-            return breakpointsHandler.createURLBreakpoint(Pattern.compile(urlRegex), line, column, condition);
+            createdBreakPoint = breakpointsHandler.createURLBreakpoint(Pattern.compile(urlRegex), line, column, condition);
         }
+        breakpointsListener.onBreakpointCreate(debuggerSession.getBreakpoints().size(), createdBreakPoint.getBreakpointId());
+        return createdBreakPoint;
     }
 
     @Override
@@ -664,7 +678,9 @@ public final class InspectorDebugger extends DebuggerDomain {
         if (location == null) {
             throw new CommandProcessException("Must specify location.");
         }
-        return breakpointsHandler.createBreakpoint(location, condition);
+        Params createdBreakPoint = breakpointsHandler.createBreakpoint(location, condition);
+        breakpointsListener.onBreakpointCreate(debuggerSession.getBreakpoints().size(), createdBreakPoint.getBreakpointId());
+        return createdBreakPoint;
     }
 
     @Override
@@ -698,7 +714,11 @@ public final class InspectorDebugger extends DebuggerDomain {
     @Override
     public void removeBreakpoint(String id) throws CommandProcessException {
         if (!breakpointsHandler.removeBreakpoint(id)) {
+            breakpointsListener.onBreakpointDispose("No breakpoint with id '" + id + "'");
             throw new CommandProcessException("No breakpoint with id '" + id + "'");
+        } else {
+            breakpointsListener.onBreakpointDispose(id, debuggerSession.getDebugger().getSessionCount(),
+                    debuggerSession.getBreakpoints());
         }
     }
 
@@ -979,7 +999,7 @@ public final class InspectorDebugger extends DebuggerDomain {
     }
 
     public boolean sourceMatchesBlackboxPatterns(Source source, Pattern[] patterns) {
-        String uri = scriptsHandler.getSourceURL(source);
+        String uri = source.getName();
         for (Pattern pattern : patterns) {
             // Check whether pattern corresponds to:
             // 1) the name of a file
@@ -1092,6 +1112,10 @@ public final class InspectorDebugger extends DebuggerDomain {
 
         @Override
         public void onSuspend(SuspendedEvent se) {
+            if (!breakpointsListener.canSuspend(debuggerSession)) {
+                return;
+            }
+            breakpointsListener.onBreakpointSuspend(debuggerSession);
             try {
                 context.waitForRunPermission();
             } catch (InterruptedException ex) {
@@ -1233,7 +1257,7 @@ public final class InspectorDebugger extends DebuggerDomain {
                     silentResume = false;
                 }
             } finally {
-                onSuspendPhaser.arriveAndDeregister();
+                onSuspendPhaser.arrive();
                 if (delayUnlock.getAndSet(false)) {
                     future.set(scheduler.schedule(() -> {
                         unlock();
