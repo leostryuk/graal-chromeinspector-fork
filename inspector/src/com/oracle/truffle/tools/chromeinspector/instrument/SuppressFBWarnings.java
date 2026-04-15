@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2021, Oracle and/or its affiliates. All rights reserved.
  * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
  *
  * This code is free software; you can redistribute it and/or modify it
@@ -22,29 +22,24 @@
  * or visit www.oracle.com if you need additional information or have any
  * questions.
  */
-package com.oracle.truffle.tools.chromeinspector.server;
+package com.oracle.truffle.tools.chromeinspector.instrument;
 
-import com.oracle.truffle.tools.chromeinspector.InspectorExecutionContext;
-import java.io.IOException;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 /**
- * A single inspector connection with the inspector protocol. One or more inspector connections may
- * be active on a single web socket connection, when they have different paths.
+ * Used to suppress <a href="https://spotbugs.readthedocs.io">SpotBugs</a> warnings.
  */
-public interface InspectorServerConnection {
+@Retention(RetentionPolicy.CLASS)
+@interface SuppressFBWarnings {
+    /**
+     * @see "https://spotbugs.readthedocs.io/en/latest/bugDescriptions.html"
+     */
+    String[] value();
 
-    void close() throws IOException;
+    /**
+     * Reason why the warning is suppressed. Use a SpotBugs issue id where appropriate.
+     */
 
-    String getURL();
-
-    InspectorExecutionContext getExecutionContext();
-
-    void consoleAPICall(String type, Object text);
-
-    interface Open {
-
-        InspectorServerConnection open(int port, String host, boolean wait);
-
-    }
-
+    String justification();
 }
